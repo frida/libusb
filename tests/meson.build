@@ -1,4 +1,6 @@
-if not get_option('tests')
+if not get_option('tests') \
+    .disable_auto_if(meson.is_subproject() or not meson.can_run_host_binaries()) \
+    .allowed()
   subdir_done()
 endif
 

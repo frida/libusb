@@ -1,4 +1,6 @@
-if not get_option('examples')
+if not get_option('examples') \
+    .disable_auto_if(meson.is_subproject() or not meson.can_run_host_binaries()) \
+    .allowed()
   subdir_done()
 endif
 

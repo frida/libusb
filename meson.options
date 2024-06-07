@@ -17,12 +17,12 @@ option('system-log', type : 'boolean',
   description : 'output logging messages to the systemwide log, if supported by the OS',
 )
 
-option('examples', type : 'boolean',
-  value: true,
+option('examples', type : 'feature',
+  value: 'auto',
   description : 'Build libusb example programs',
 )
 
-option('tests', type : 'boolean',
-  value: true,
+option('tests', type : 'feature',
+  value: 'auto',
   description : 'Build libusb example tests',
 )
