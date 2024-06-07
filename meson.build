@@ -2,7 +2,7 @@ project(
   'libusb',
   'c',
   version: '1.0.27',
-  meson_version: '>=0.49.0',
+  meson_version: '>=1.1.0',
 )
 
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
