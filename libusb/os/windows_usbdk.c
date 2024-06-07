@@ -26,6 +26,9 @@
 
 #include <config.h>
 
+#if !defined(__CYGWIN__)
+#include <winsock2.h>
+#endif
 #include <windows.h>
 #include <stdio.h>
 
