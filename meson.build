@@ -142,5 +142,7 @@ libusb_dep = declare_dependency(
   link_with: libusb,
 )
 
+meson.override_dependency('libusb-1.0', libusb_dep)
+
 subdir('examples')
 subdir('tests')
