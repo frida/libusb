@@ -65,6 +65,9 @@ typedef SSIZE_T ssize_t;
  * As this can be problematic if you include windows.h after libusb.h
  * in your sources, we force windows.h to be included first. */
 #if defined(_WIN32) || defined(__CYGWIN__)
+#if !defined(__CYGWIN__)
+#include <winsock2.h>
+#endif
 #include <windows.h>
 #if defined(interface)
 #undef interface
