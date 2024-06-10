@@ -3,7 +3,7 @@ option('udev', type : 'feature',
 )
 
 option('logging', type : 'boolean',
-  value: true,
+  value: false,
   description: 'Enable or disable logging',
 )
 
