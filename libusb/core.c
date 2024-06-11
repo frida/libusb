@@ -1272,10 +1272,14 @@ out:
 DEFAULT_VISIBILITY
 libusb_device * LIBUSB_CALL libusb_ref_device(libusb_device *dev)
 {
+#ifdef NDEBUG
+	(void) usbi_atomic_inc(&dev->refcnt);
+#else
 	long refcnt;
 
 	refcnt = usbi_atomic_inc(&dev->refcnt);
 	assert(refcnt >= 2);
+#endif
 
 	return dev;
 }
