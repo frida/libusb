@@ -124,3 +124,15 @@ unsigned long usbi_get_tid(void)
 
 	return tl_tid = tid;
 }
+
+#if !defined(HAVE_CLOCK_GETTIME) && defined(__linux__)
+extern int clock_gettime(clockid_t clockid, struct timespec *tp) __attribute__((weak));
+
+void usbi_get_monotonic_time(struct timespec *tp) {
+	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, tp), 0);
+}
+
+void usbi_get_real_time(struct timespec *tp) {
+	ASSERT_EQ(clock_gettime(CLOCK_REALTIME, tp), 0);
+}
+#endif

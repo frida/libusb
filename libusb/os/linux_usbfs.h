@@ -21,8 +21,9 @@
 #ifndef LIBUSB_USBFS_H
 #define LIBUSB_USBFS_H
 
-#include <linux/magic.h>
 #include <linux/types.h>
+
+#include "linux_magic.h"
 
 #define SYSFS_MOUNT_PATH	"/sys"
 #define SYSFS_DEVICE_PATH	SYSFS_MOUNT_PATH "/bus/usb/devices"

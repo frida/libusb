@@ -75,6 +75,10 @@
 #define USBDEV_PATH		"/dev"
 #define USB_DEVTMPFS_PATH	"/dev/bus/usb"
 
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0x80000
+#endif
+
 /* use usbdev*.* device names in /dev instead of the usbfs bus directories */
 static int usbdev_names = 0;
 
