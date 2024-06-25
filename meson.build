@@ -99,7 +99,7 @@ if host_machine.system() == 'linux'
 elif host_machine.system() == 'haiku'
   sources += files('libusb/os/haiku_pollfs.cpp', 'libusb/os/haiku_usb_backend.cpp', 'libusb/os/haiku_usb_raw.cpp')
 elif host_machine.system() == 'windows'
-  sources += files('libusb/os/windows_common.c', 'libusb/os/windows_usbdk.c', 'libusb/os/windows_winusb.c')
+  sources += files('libusb/os/windows_common.c', 'libusb/os/windows_hotplug.c', 'libusb/os/windows_usbdk.c', 'libusb/os/windows_winusb.c')
 elif host_machine.system() in ['darwin', 'netbsd', 'openbsd', 'sunos']
   sources += files('libusb/os/@0@_usb.c'.format(host_machine.system()))
 else
