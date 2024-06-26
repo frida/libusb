@@ -8,16 +8,34 @@
 #include <dbt.h>
 #include <usbiodef.h>
 
+#define USB_REFRESH_TIMER_ID 1
+
+#define for_each_pending_change(c) \
+	list_for_each_entry(c, &windows_pending_changes, list, struct windows_pending_change)
+
+#define for_each_pending_change_safe(c, n) \
+	list_for_each_entry_safe(c, n, &windows_pending_changes, list, struct windows_pending_change)
+
 /* The Windows Hotplug system is a three steps process.
  * 1. We create a monitor on GUID_DEVINTERFACE_USB_DEVICE via a hidden window.
  * 2. Upon notification of an event, we run the current windows backend to get the list of devices.
  *    This updates the hotplug status of each device to one of three values {UNCHANGED, ARRIVED, LEFT}.
  * 3. According to the value, we generate events to libusb client via hotplug callbacks. */
 
+struct windows_pending_change {
+	struct list_head list;
+	WPARAM           event;
+	char *           device_name;
+};
+
 static HWND windows_event_hwnd;
 static HANDLE windows_event_thread_handle;
+static struct list_head windows_pending_changes;
 static DWORD WINAPI windows_event_thread_main(LPVOID lpParam);
 static LRESULT CALLBACK windows_proc_callback(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+static void windows_clear_pending_changes(void);
+static void windows_pending_change_free(struct windows_pending_change *change);
 
 #define log_error(operation) do { \
 	usbi_err(NULL, "%s failed with error: %s", operation, windows_error_str(0)); \
@@ -25,6 +43,8 @@ static LRESULT CALLBACK windows_proc_callback(HWND hwnd, UINT message, WPARAM wP
 
 int windows_start_event_monitor(void)
 {
+	list_init(&windows_pending_changes);
+
 	windows_event_thread_handle = CreateThread(
 		NULL, // Default security descriptor
 		0, // Default stack size
@@ -68,6 +88,8 @@ int windows_stop_event_monitor(void)
 		return LIBUSB_ERROR_OTHER;
 	}
 
+	windows_clear_pending_changes();
+
 	return LIBUSB_SUCCESS;
 }
 
@@ -94,8 +116,30 @@ void windows_initial_scan_devices(struct libusb_context *ctx)
 	usbi_mutex_static_unlock(&active_contexts_lock);
 }
 
-static void windows_refresh_device_list(struct libusb_context *ctx, const bool device_arrived, const char* device_name)
+static void windows_refresh_device_list(struct libusb_context *ctx)
 {
+	struct windows_pending_change *change;
+
+	for_each_pending_change(change) {
+		struct libusb_device *dev, *next_dev;
+		struct winusb_device_priv *priv;
+
+		if (change->event != DBT_DEVICEREMOVECOMPLETE)
+			continue;
+
+		for_each_device_safe(ctx, dev, next_dev) {
+			priv = usbi_get_device_priv(dev);
+
+			if (_stricmp(priv->path, change->device_name) != 0)
+				continue;
+
+			if (priv->initialized)
+				usbi_disconnect_device(dev);
+			else
+				usbi_detach_device(dev);
+		}
+	}
+
 	const int ret = windows_get_device_list(ctx);
 	if (ret != LIBUSB_SUCCESS)
 	{
@@ -103,47 +147,37 @@ static void windows_refresh_device_list(struct libusb_context *ctx, const bool d
 		return;
 	}
 
-	struct libusb_device *dev, *next_dev;
-	struct winusb_device_priv *priv;
+	for_each_pending_change(change) {
+		struct libusb_device *dev, *next_dev;
+		struct winusb_device_priv *priv;
 
-	for_each_device_safe(ctx, dev, next_dev)
-	{
-		priv = usbi_get_device_priv(dev);
-
-		if(_stricmp(priv->path, device_name) != 0)
-		{
+		if (change->event != DBT_DEVICEARRIVAL)
 			continue;
-		}
 
-		if(device_arrived)
-		{
+		for_each_device_safe(ctx, dev, next_dev) {
+			priv = usbi_get_device_priv(dev);
+
+			if (_stricmp(priv->path, change->device_name) != 0)
+				continue;
+
 			usbi_hotplug_notification(ctx, dev, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED);
-		}
-		else
-		{
-			if (priv->initialized)
-			{
-				usbi_disconnect_device(dev);
-			}
-			else
-			{
-				usbi_detach_device(dev);
-			}
 		}
 	}
 }
 
-static void windows_refresh_device_list_for_all_ctx(const bool device_arrived, const char* device_name)
+static void windows_refresh_device_list_for_all_ctx(void)
 {
 	usbi_mutex_static_lock(&active_contexts_lock);
 
 	struct libusb_context *ctx;
 	for_each_context(ctx)
 	{
-		windows_refresh_device_list(ctx, device_arrived, device_name);
+		windows_refresh_device_list(ctx);
 	}
 
 	usbi_mutex_static_unlock(&active_contexts_lock);
+
+	windows_clear_pending_changes();
 }
 
 #define WND_CLASS_NAME TEXT("libusb-1.0-windows-hotplug")
@@ -302,7 +336,27 @@ static LRESULT CALLBACK windows_proc_callback(
 				const char* device_name = ((PDEV_BROADCAST_DEVICEINTERFACE)lParam)->dbcc_name;
 #endif
 
-				windows_refresh_device_list_for_all_ctx(wParam == DBT_DEVICEARRIVAL ? true : false, device_name);
+				struct windows_pending_change *change;
+
+				bool still_relevant = true;
+				if (wParam == DBT_DEVICEREMOVECOMPLETE) {
+					for_each_pending_change(change) {
+						if (change->event == DBT_DEVICEARRIVAL && _stricmp(change->device_name, device_name) == 0) {
+							windows_pending_change_free(change);
+							still_relevant = false;
+							break;
+						}
+					}
+				}
+
+				if (still_relevant) {
+					bool is_first_pending_change = list_empty(&windows_pending_changes);
+
+					change = calloc(1, sizeof(*change));
+					change->event = wParam;
+					change->device_name = _strdup(device_name);
+					list_add_tail(&change->list, &windows_pending_changes);
+				}
 
 #ifdef UNICODE
 				free(device_name);
@@ -310,8 +364,29 @@ static LRESULT CALLBACK windows_proc_callback(
 				return TRUE;
 			}
 			break;
+		case DBT_DEVNODES_CHANGED:
+			if (!list_empty(&windows_pending_changes)) {
+				UINT num_arrivals = 0;
+				UINT num_removals = 0;
+				struct windows_pending_change *change;
+				for_each_pending_change(change) {
+						if (change->event == DBT_DEVICEARRIVAL)
+							num_arrivals++;
+						else
+							num_removals++;
+				}
+				bool change_potentially_related_to_removal = num_arrivals != 0 && num_removals != 0;
+				UINT delay = change_potentially_related_to_removal ? 500 : 50;
+				SetTimer(hwnd, USB_REFRESH_TIMER_ID, delay, NULL);
+			}
+			break;
 		}
 		return BROADCAST_QUERY_DENY;
+
+	case WM_TIMER:
+		KillTimer(hwnd, USB_REFRESH_TIMER_ID);
+		windows_refresh_device_list_for_all_ctx();
+		return 0;
 
 	case WM_CLOSE:
 		if (!UnregisterDeviceNotification(device_notify_handle))
@@ -331,4 +406,19 @@ static LRESULT CALLBACK windows_proc_callback(
 	default:
 		return DefWindowProc(hwnd, message, wParam, lParam);
 	}
+}
+
+static void windows_clear_pending_changes(void)
+{
+	struct windows_pending_change *change, *next;
+	for_each_pending_change_safe(change, next) {
+		windows_pending_change_free(change);
+	}
+}
+
+static void windows_pending_change_free(struct windows_pending_change *change)
+{
+	list_del(&change->list);
+	free(change->device_name);
+	free(change);
 }
