@@ -1,8 +1,11 @@
+/* -*- Mode: C; indent-tabs-mode:t ; c-basic-offset:4 -*- */
 /*
  * libusb synchronization using POSIX Threads
  *
  * Copyright © 2011 Vitali Lovich <vlovich@aliph.com>
  * Copyright © 2011 Peter Stuge <peter@stuge.se>
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -38,7 +41,7 @@
 # include <sys/lwp.h>
 #endif
 
-void usbi_cond_init(pthread_cond_t *cond)
+void usbi_cond_init(usbi_cond_t *cond)
 {
 #ifdef HAVE_PTHREAD_CONDATTR_SETCLOCK
 	pthread_condattr_t condattr;
@@ -52,8 +55,8 @@ void usbi_cond_init(pthread_cond_t *cond)
 #endif
 }
 
-int usbi_cond_timedwait(pthread_cond_t *cond,
-	pthread_mutex_t *mutex, const struct timeval *tv)
+int usbi_cond_timedwait(usbi_cond_t *cond,
+	usbi_mutex_t *mutex, const struct timeval *tv) REQUIRES(*mutex)
 {
 	struct timespec timeout;
 	int r;
@@ -80,9 +83,16 @@ int usbi_cond_timedwait(pthread_cond_t *cond,
 		return LIBUSB_ERROR_OTHER;
 }
 
+/* C uses _Thread_local; C++ uses the thread_local keyword. */
+#if defined(__cplusplus)
+#define USBI_THREAD_LOCAL thread_local
+#else
+#define USBI_THREAD_LOCAL _Thread_local
+#endif
+
 unsigned long usbi_get_tid(void)
 {
-	static _Thread_local unsigned long tl_tid;
+	static USBI_THREAD_LOCAL unsigned long tl_tid;
 	unsigned long tid;
 
 	if (tl_tid)
@@ -124,15 +134,3 @@ unsigned long usbi_get_tid(void)
 
 	return tl_tid = tid;
 }
-
-#if !defined(HAVE_CLOCK_GETTIME) && defined(__linux__)
-extern int clock_gettime(clockid_t clockid, struct timespec *tp) __attribute__((weak));
-
-void usbi_get_monotonic_time(struct timespec *tp) {
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, tp), 0);
-}
-
-void usbi_get_real_time(struct timespec *tp) {
-	ASSERT_EQ(clock_gettime(CLOCK_REALTIME, tp), 0);
-}
-#endif

@@ -7,6 +7,7 @@ scriptdir=$(dirname $(readlink -f "$0"))
 install=no
 test=yes
 asan=yes
+docs=no
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -28,6 +29,14 @@ while [ $# -gt 0 ]; do
 		;;
 	--no-asan)
 		asan=no
+		shift
+		;;
+	--werror)
+		cflags+=" -Werror"
+		shift
+		;;
+	--build-docs)
+		docs=yes
 		shift
 		;;
 	--)
@@ -53,7 +62,7 @@ fi
 mkdir "${builddir}"
 cd "${builddir}"
 
-cflags="-O2"
+cflags+=" -O2"
 
 # enable extra warnings
 cflags+=" -Winline"
@@ -70,11 +79,19 @@ fi
 
 echo ""
 echo "Configuring ..."
-CFLAGS="${cflags}" CXXFLAGS="${cflags}" ../configure --enable-examples-build --enable-tests-build "$@"
+configure_args=(--enable-examples-build --enable-tests-build)
+if [ -n "${TESTCORE_CONFIGURE_FLAG:-}" ]; then
+	configure_args+=("${TESTCORE_CONFIGURE_FLAG}")
+fi
+CFLAGS="${cflags}" CXXFLAGS="${cflags}" ../configure "${configure_args[@]}" "$@"
 
 echo ""
 echo "Building ..."
 make -j4 -k
+
+if [ "${docs}" = "yes" ]; then
+	make -C doc
+fi
 
 if [ "${test}" = "yes" ]; then
 	# Load custom shim for WebUSB tests that simulates Web environment.
